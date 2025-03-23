@@ -7,12 +7,13 @@
 float theta = 0.0, theta_speed = 0.0;
 float ax_angle = 0;
 float gx_angle = 0;
+float gx_float = 0;
 
 float Ts = 0.01, currentT = 0.0, previousT = 0.0;        // Elapsed time in loop() function
 
-float Q_angle = 0.001; // Angular data confidence
-float Q_bias  = 0.005; // Angular velocity data confidence
-float R_meas  = 1.0;
+float Q_angle = 0.0088; // Angular data confidence
+float Q_bias  = 0.0088; // Angular velocity data confidence
+float R_meas  = 0.0305;
 float roll_angle = 0.0;
 float bias = 0.0;
 float P[2][2] = {{ 1, 0 }, { 0, 1 }};
@@ -27,7 +28,7 @@ void setup() { // put your setup code here, to run once:
 
   pinMode (2, OUTPUT);
   pinMode (0, INPUT);
-  while(digitalRead(0) == HIGH); //Wait for Bluetooth client connection
+  while(digitalRead(0) == HIGH); //Wait for BOOT buton
 }
 
 // MAIN LOOP
@@ -38,17 +39,19 @@ void loop() {// put your main code here, to run repeatedly:
     previousT = currentT;
 
     IMUread();
-
-    Serial.print(currentT/1000.0, 5);
-    Serial.print(",");
-    Serial.print(ax_angle, 5);
-    Serial.print(",");
-    Serial.print(gx_angle, 5);
-    Serial.print(",");
-    Serial.print(theta, 5);    
-    Serial.print(",");
-    Serial.println(bias, 5);
     
+    Serial.print(currentT/1000.0, 6);
+    Serial.print(",");
+    Serial.print(ax_angle, 6);
+    Serial.print(",");
+    Serial.print(gx_angle, 6);
+    Serial.print(",");
+    Serial.print(theta, 6);
+    Serial.print(",");
+    Serial.print(bias, 6);
+    Serial.print(",");
+    Serial.println(gx_float, 6);
+
     digitalWrite(2, HIGH);
   }
 
@@ -57,21 +60,22 @@ void loop() {// put your main code here, to run repeatedly:
 // SETUP functions
 void IMUsetup(){
   // Initialize the MPU6050
-  Wire.beginTransmission(MPU);           //begin, Send the slave adress (in this case 68)              
-  Wire.write(0x6B);                      //make the reset (place a 0 into the 6B register)
+  Wire.beginTransmission(MPU);           // begin, Send the slave address (in this case 68)              
+  Wire.write(0x6B);                      // make the reset (write 0 into the 6B register)
   Wire.write(0);
-  Wire.endTransmission(true);            //end the transmission
-  //Gyro config
-  Wire.beginTransmission(MPU);           //begin, Send the slave adress (in this case 68) 
-  Wire.write(0x1B);                      //We want to write to the GYRO_CONFIG register (1B hex)
-  // Wire.write(0x00000000);             //Set the register bits as 00000000 (250dps full scale), 00010000 (1000dps full scale)
-  Wire.write(1 << 3);
-  Wire.endTransmission();                //End the transmission with the gyro
-  //Acc config
-  Wire.beginTransmission(MPU);           //Start communication with the address found during search.
-  Wire.write(0x1C);                      //We want to write to the ACCEL_CONFIG register
-  Wire.write(0b00000000);                //Set the register bits as 00000000 (+/- 2g full scale range), 00010000 (+/- 8g full scale range)
-  Wire.endTransmission(); 
+  Wire.endTransmission(true);            // end the transmission
+
+  // Gyro config
+  Wire.beginTransmission(MPU);           // begin, Send the slave address (in this case 68)
+  Wire.write(0x1B);                      // We want to write to the GYRO_CONFIG register (0x1B)
+  Wire.write(0x00000000);                // 0x00000000 -> FS_SEL = 0 (±250 °/s)
+  Wire.endTransmission();                // End the transmission with the gyro
+
+  // Acc config
+  Wire.beginTransmission(MPU);           // Start communication with the address found during search
+  Wire.write(0x1C);                      // We want to write to the ACCEL_CONFIG register
+  Wire.write(0b00000000);                // Set to ±2g full scale range
+  Wire.endTransmission();
 }
 
 // IMU function: Kalman Filter
@@ -94,17 +98,17 @@ void IMUread(){
   //float ay_angle = atan2(ax, sqrt(ay*ay + az*az)) * 57.3; // pitch
   // float az_angle = atan2(sqrt(ax*ax + az*az), az) * 57.3; // yaw (useless)
   // gyro measurements in degress (or rads)
-  gx =  gx / 65.5; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
-  // gy =  gy / 65.5; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
-  // gz =  gz / 65.5; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
+  gx_float =  gx / 131.0; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
+  // gy =  gy / 131.0; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
+  // gz =  gz / 131.0; //* 0.0174533; // Datasheet Sensitivity Scale Factor: 131, 65.5, 32.8, 16.4 for degrees/sec and Scale pi/180 = 0.0174533 for rad/sec
   
   // begin: Kalman filter - Roll Axis (X)
-  roll_angle += (gx - bias) * Ts;
+  roll_angle += (gx_float - bias) * Ts;
   
-  P[0][0] += (Q_angle - P[0][1] - P[1][0]) * Ts;
+  P[0][0] += ( (P[1][1]*Ts) - P[0][1] - P[1][0] + (Q_angle * Ts) ) * Ts;
   P[0][1] += -P[1][1] * Ts;
   P[1][0] += -P[1][1] * Ts;
-  P[1][1] += Q_bias * Ts;
+  P[1][1] += Q_bias;
   //
   K[0] = P[0][0] / (P[0][0] + R_meas);
   K[1] = P[1][0] / (P[0][0] + R_meas);  
@@ -121,12 +125,8 @@ void IMUread(){
   P[1][1] -= K[1] * P01_temp;
   // end: Kalman filter 
 
-  theta_speed = gx - bias; // Unbiased gyro speed
-  gx_angle += gx * Ts;
-  theta += theta_speed * Ts;
-  
-  // //  Complementary filter   
-  // roll_anglec = 0.98 * (roll_anglec + gx * Ts) + 0.02 * ax_angle;
-  // pitch_anglec = 0.98 * (pitch_anglec + gy * Ts) + 0.02 * ay_angle;
-  // yaw_anglec = 0.98 * (yaw_anglec + gz * Ts) + 0.02 * az_angle;
+  theta_speed = gx_float - bias; // Unbiased gyro speed
+  gx_angle += gx_float * Ts;
+  theta = roll_angle;
+
 }
